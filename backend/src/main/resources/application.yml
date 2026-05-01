@@ -1,0 +1,108 @@
+server:
+  port: 8080
+
+spring:
+  config:
+    import: "optional:file:.env[.properties]"
+  r2dbc:
+    url: ${R2DBC_URL:r2dbc:postgresql://localhost:5432/llmgateway}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
+  datasource:
+    url: ${JDBC_URL:jdbc:postgresql://localhost:5432/llmgateway?TimeZone=UTC}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    url: ${FLYWAY_URL:jdbc:postgresql://localhost:5432/llmgateway?options=-c%20timezone%3DUTC}
+    user: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
+
+providers:
+  openai:
+    api-key: ${OPENAI_API_KEY:}
+    base-url: https://api.openai.com/v1
+    default-model: gpt-4o
+  gemini:
+    api-key: ${GEMINI_API_KEY:}
+    base-url: https://generativelanguage.googleapis.com/v1beta
+    default-model: gemini-flash-latest
+  anthropic:
+    api-key: ${ANTHROPIC_API_KEY:}
+    base-url: https://api.anthropic.com
+    default-model: claude-haiku-4-5-20251001
+    max-tokens: 1024
+    version: 2023-06-01
+
+pricing:
+  models:
+    gemini-flash-latest:
+      input-per-1k: 0.000075
+      output-per-1k: 0.0003
+    "[gemini-2.5-flash]":
+      input-per-1k: 0.0003
+      output-per-1k: 0.0025
+    gpt-4o:
+      input-per-1k: 0.0025
+      output-per-1k: 0.010
+    gpt-4o-mini:
+      input-per-1k: 0.00015
+      output-per-1k: 0.0006
+    claude-sonnet-4-6:
+      input-per-1k: 0.003
+      output-per-1k: 0.015
+    claude-haiku-4-5-20251001:
+      input-per-1k: 0.001
+      output-per-1k: 0.005
+    claude-opus-4-7:
+      input-per-1k: 0.015
+      output-per-1k: 0.075
+
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 50
+        waitDurationInOpenState: 30s
+        permittedNumberOfCallsInHalfOpenState: 2
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+    instances:
+      openai:
+        baseConfig: default
+      gemini:
+        baseConfig: default
+      anthropic:
+        baseConfig: default
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,circuitbreakers,circuitbreakerevents
+  endpoint:
+    health:
+      show-details: always
+  health:
+    circuitbreakers:
+      enabled: true
+
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:*}
+
+jwt:
+  secret: ${JWT_SECRET:change-me-in-production-must-be-at-least-32-chars}
+  expiration-hours: 24
+
+encryption:
+  key: ${ENCRYPTION_KEY:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+
+logging:
+  level:
+    com.llmgateway: DEBUG
+    org.springframework.r2dbc: INFO
+    org.flywaydb: DEBUG
