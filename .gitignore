@@ -38,5 +38,24 @@ build/
 ### Mac OS ###
 .DS_Store
 
+### Node ###
+node_modules/
+
 ### Secrets ###
 .env
+.env.local
+.env.*.local
+
+### Claude Code ###
+.claude/
+
+### Temp / generated files ###
+response.json
+
+### IntelliJ IDEA - local/sensitive ###
+.idea/dataSources.xml
+.idea/dataSources.local.xml
+.idea/git_toolbox_prj.xml
+.idea/sqldialects.xml
+.idea/workspace.xml
+.idea/shelf/

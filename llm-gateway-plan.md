@@ -1,4 +1,4 @@
-# LLM Gateway — Architecture Reference
+# LLMetrics — Architecture Reference
 
 > **Stack:** Java 21 · Spring Boot 3.3.4 · WebFlux · R2DBC · PostgreSQL 16 · React 18 · TypeScript · Vite
 
@@ -353,18 +353,6 @@ pricing:
 ```
 
 Adding a new model is config-only — no code change required.
-
----
-
-## Known bugs fixed
-
-| Bug | Root cause | Fix |
-|---|---|---|
-| DELETE provider key returns 204 but row stays in DB | Spring Data R2DBC derived `deleteBy...` methods return an empty `Mono<Void>` without executing SQL unless annotated with `@Modifying` + `@Query` | Added explicit `@Modifying @Query("DELETE FROM user_provider_keys WHERE ...")` to `UserProviderKeyRepository` |
-| All navigation tabs blank after login | Pages referenced an undeclared `apiKey` variable left over from an older design; React threw a `ReferenceError` that silently caught and rendered nothing | Removed the stale guard and dependency from `CostDashboard`, `Playground`, and `Prompts` |
-| PUT provider-keys throws "Unexpected end of JSON input" | `PUT /v1/user/provider-keys/{provider}` returns 200 with empty body; frontend `put<T>` called `res.json()` unconditionally | `put<T>` now checks `Content-Type` header before parsing; returns `undefined` on empty body |
-| Registration auto-logged user in, caused stuck screen | `register()` in `AuthContext` stored the JWT and set auth state, but the Register page had no navigation handler | `register()` now discards the token; Register page shows 2s success banner then redirects to `/login` |
-| Vite proxy missing `/auth/*` | `vite.config.ts` only proxied `/v1/*`; auth endpoints returned 404 from Vite | Added `/auth` entry to the proxy config |
 
 ---
 

@@ -1,4 +1,4 @@
-# Runbook — LLM Gateway
+# Runbook — LLMetrics
 
 Operational reference for running, testing, and debugging the gateway locally.
 
@@ -395,7 +395,7 @@ cd backend && mvn spring-boot:run
 
 ## Gotchas
 
-1. **JVM timezone.** Running `java -jar` without `-Duser.timezone=UTC` crashes Flyway because PostgreSQL 16 rejects the `Asia/Calcutta` timezone. `mvn spring-boot:run` passes the flag automatically via `pom.xml`. Always prefer Maven for local dev.
+1. **JVM timezone.** Running `java -jar` without `-Duser.timezone=UTC` crashes Flyway because PostgreSQL 16 rejects non-UTC JVM timezones. `mvn spring-boot:run` passes the flag automatically via `pom.xml`. Always prefer Maven for local dev.
 
 2. **Model names with dots in `application.yml`.** YAML treats dots as nested keys. Model IDs like `gemini-2.5-flash` must use bracket notation:
    ```yaml

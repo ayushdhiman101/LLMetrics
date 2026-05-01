@@ -1,4 +1,4 @@
-# LLM Gateway
+# LLMetrics
 
 Reactive Java gateway for LLM API calls with cost observability, prompt versioning, multi-provider fallback, and a React dashboard. Built on Spring Boot 3 + WebFlux + R2DBC + PostgreSQL.
 
@@ -228,4 +228,4 @@ See `RUNBOOK.md → Free deployment` for the full step-by-step guide.
 
 ## License
 
-MIT
+Made with ❤️ in India
