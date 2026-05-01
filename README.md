@@ -77,6 +77,113 @@ Go to **Cost** to see per-provider and per-model spend, request volume, and a da
 
 ---
 
+## Integrate into your codebase
+
+Point any HTTP client at your deployed backend. All requests are tracked automatically — costs, latency, and token counts appear in the dashboard.
+
+### cURL
+```bash
+TOKEN=$(curl -s -X POST https://your-backend.onrender.com/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"you@example.com","password":"yourpassword"}' | jq -r .token)
+
+curl -N -X POST https://your-backend.onrender.com/v1/completions \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"message":"Hello!","models":["gpt-4o-mini","gemini-2.5-flash"]}'
+```
+
+### Python
+```bash
+pip install requests
+```
+```python
+# Copy examples/python/client.py into your project
+from client import GatewayClient
+
+gw = GatewayClient("https://your-backend.onrender.com")
+gw.login("you@example.com", "yourpassword")
+
+response = gw.complete(
+    message="Hello!",
+    models=["gpt-4o-mini", "gemini-2.5-flash"],  # fallback chain
+)
+print(response)
+```
+
+### TypeScript / Node.js
+```typescript
+// Copy examples/node/client.ts into your project — Node 20+, no extra packages
+import { GatewayClient } from "./client"
+
+const gw = new GatewayClient("https://your-backend.onrender.com")
+await gw.login("you@example.com", "yourpassword")
+
+const response = await gw.complete({
+  message: "Hello!",
+  models: ["gpt-4o-mini", "gemini-2.5-flash"],
+  onToken: (t) => process.stdout.write(t),
+})
+```
+
+### Java
+```java
+// pom.xml: com.squareup.okhttp3:okhttp:4.12.0 + org.json:json:20240303
+String loginBody = new JSONObject()
+    .put("email", "you@example.com").put("password", "yourpassword").toString();
+Response loginResp = client.newCall(new Request.Builder()
+    .url("https://your-backend.onrender.com/auth/login")
+    .post(RequestBody.create(loginBody, JSON)).build()).execute();
+String token = new JSONObject(loginResp.body().string()).getString("token");
+
+String body = new JSONObject()
+    .put("message", "Hello!")
+    .put("models", new String[]{"gpt-4o-mini", "gemini-2.5-flash"}).toString();
+client.newCall(new Request.Builder()
+    .url("https://your-backend.onrender.com/v1/completions")
+    .post(RequestBody.create(body, JSON))
+    .header("Authorization", "Bearer " + token).build()).execute();
+```
+
+### Go
+```go
+// stdlib only — no extra packages
+loginPayload, _ := json.Marshal(map[string]string{"email": "you@example.com", "password": "yourpassword"})
+resp, _ := http.Post("https://your-backend.onrender.com/auth/login", "application/json", bytes.NewBuffer(loginPayload))
+var loginResp map[string]interface{}
+json.NewDecoder(resp.Body).Decode(&loginResp)
+token := loginResp["token"].(string)
+
+payload, _ := json.Marshal(map[string]interface{}{
+    "message": "Hello!",
+    "models":  []string{"gpt-4o-mini", "gemini-2.5-flash"},
+})
+req, _ := http.NewRequest("POST", "https://your-backend.onrender.com/v1/completions", bytes.NewBuffer(payload))
+req.Header.Set("Authorization", "Bearer "+token)
+req.Header.Set("Content-Type", "application/json")
+http.DefaultClient.Do(req)
+```
+
+### PHP
+```php
+$resp = json_decode(file_get_contents("https://your-backend.onrender.com/auth/login", false,
+    stream_context_create(['http' => ['method' => 'POST',
+        'header' => "Content-Type: application/json",
+        'content' => json_encode(["email" => "you@example.com", "password" => "yourpassword"])
+    ]])), true);
+$token = $resp["token"];
+
+$ch = curl_init("https://your-backend.onrender.com/v1/completions");
+curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_HTTPHEADER => ["Content-Type: application/json", "Authorization: Bearer $token"],
+    CURLOPT_POSTFIELDS => json_encode(["message" => "Hello!", "models" => ["gpt-4o-mini"]])]);
+echo curl_exec($ch);
+```
+
+> The full SDK clients with streaming, prompt templates, and token caching are in `examples/python/client.py` and `examples/node/client.ts`.
+
+---
+
 ## API
 
 ### Authentication
