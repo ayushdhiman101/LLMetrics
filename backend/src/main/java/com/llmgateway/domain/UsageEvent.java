@@ -20,5 +20,6 @@ public record UsageEvent(
         @Column("output_tokens") Integer outputTokens,
         @Column("cost_usd") BigDecimal costUsd,
         @Column("latency_ms") Integer latencyMs,
+        @Column("session_id") UUID sessionId,
         @Column("created_at") LocalDateTime createdAt
 ) {}

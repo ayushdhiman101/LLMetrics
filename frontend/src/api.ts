@@ -87,6 +87,14 @@ async function del(path: string): Promise<void> {
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
 }
 
+export interface Session {
+  id: string
+  name: string
+  startedAt: string
+  endedAt: string | null
+  active: boolean
+}
+
 export interface ProviderKeyResponse {
   provider: string
   configured: boolean
@@ -144,9 +152,33 @@ export async function streamCompletion(
   }
 }
 
+async function postEmpty(path: string): Promise<void> {
+  const res = await fetch(`${API_BASE}${path}`, { method: 'POST', headers: authHeaders() })
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+}
+
 export const api = {
-  fetchSummary: (from: string, to: string) =>
-    get<UsageSummaryResponse>(`/v1/usage/summary?from=${from}&to=${to}`),
+  fetchSummary: (from: string, to: string, sessionId?: string) => {
+    const params = new URLSearchParams({ from, to })
+    if (sessionId) params.set('sessionId', sessionId)
+    return get<UsageSummaryResponse>(`/v1/usage/summary?${params}`)
+  },
+
+  listSessions: () =>
+    get<Session[]>('/v1/sessions'),
+
+  getActiveSession: () =>
+    fetch(`${API_BASE}/v1/sessions/active`, { headers: authHeaders() })
+      .then(res => res.status === 204 ? null : res.json() as Promise<Session>),
+
+  startSession: (name: string) =>
+    post<Session>('/v1/sessions', { name }),
+
+  stopSession: (id: string) =>
+    postEmpty(`/v1/sessions/${id}/stop`),
+
+  renameSession: (id: string, name: string) =>
+    put<Session>(`/v1/sessions/${id}/name`, { name }),
 
   listPrompts: () =>
     get<PromptResponse[]>('/v1/prompts'),

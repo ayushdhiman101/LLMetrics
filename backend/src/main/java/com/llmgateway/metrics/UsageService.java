@@ -25,12 +25,16 @@ public class UsageService {
     }
 
     public Mono<UsageSummaryResponse> getSummary(UUID tenantId, LocalDate from, LocalDate to) {
+        return getSummary(tenantId, from, to, null);
+    }
+
+    public Mono<UsageSummaryResponse> getSummary(UUID tenantId, LocalDate from, LocalDate to, UUID sessionId) {
         LocalDateTime fromDt = from.atStartOfDay();
         LocalDateTime toDt = to.plusDays(1).atStartOfDay();
 
-        Mono<List<ProviderBreakdown>> byProvider = queryByProvider(tenantId, fromDt, toDt).collectList();
-        Mono<List<ModelBreakdown>> byModel = queryByModel(tenantId, fromDt, toDt).collectList();
-        Mono<List<DailyBreakdown>> byDay = queryByDay(tenantId, fromDt, toDt).collectList();
+        Mono<List<ProviderBreakdown>> byProvider = queryByProvider(tenantId, fromDt, toDt, sessionId).collectList();
+        Mono<List<ModelBreakdown>> byModel = queryByModel(tenantId, fromDt, toDt, sessionId).collectList();
+        Mono<List<DailyBreakdown>> byDay = queryByDay(tenantId, fromDt, toDt, sessionId).collectList();
 
         return Mono.zip(byProvider, byModel, byDay)
                 .map(t -> {
@@ -47,8 +51,9 @@ public class UsageService {
                 });
     }
 
-    private Flux<ProviderBreakdown> queryByProvider(UUID tenantId, LocalDateTime from, LocalDateTime to) {
-        return db.sql("""
+    private Flux<ProviderBreakdown> queryByProvider(UUID tenantId, LocalDateTime from, LocalDateTime to, UUID sessionId) {
+        String sessionFilter = sessionId != null ? " AND session_id = :sessionId" : "";
+        var spec = db.sql("""
                         SELECT provider,
                                COUNT(*)                      AS requests,
                                COALESCE(SUM(input_tokens), 0)  AS input_tokens,
@@ -58,13 +63,15 @@ public class UsageService {
                         WHERE tenant_id = :tenantId
                           AND created_at >= :from
                           AND created_at < :to
+                        """ + sessionFilter + """
                         GROUP BY provider
                         ORDER BY cost_usd DESC
                         """)
                 .bind("tenantId", tenantId)
                 .bind("from", from)
-                .bind("to", to)
-                .map(row -> new ProviderBreakdown(
+                .bind("to", to);
+        if (sessionId != null) spec = spec.bind("sessionId", sessionId);
+        return spec.map(row -> new ProviderBreakdown(
                         row.get("provider", String.class),
                         longVal(row.get("requests")),
                         longVal(row.get("input_tokens")),
@@ -74,8 +81,9 @@ public class UsageService {
                 .all();
     }
 
-    private Flux<ModelBreakdown> queryByModel(UUID tenantId, LocalDateTime from, LocalDateTime to) {
-        return db.sql("""
+    private Flux<ModelBreakdown> queryByModel(UUID tenantId, LocalDateTime from, LocalDateTime to, UUID sessionId) {
+        String sessionFilter = sessionId != null ? " AND session_id = :sessionId" : "";
+        var spec = db.sql("""
                         SELECT model,
                                provider,
                                COUNT(*)                      AS requests,
@@ -86,13 +94,15 @@ public class UsageService {
                         WHERE tenant_id = :tenantId
                           AND created_at >= :from
                           AND created_at < :to
+                        """ + sessionFilter + """
                         GROUP BY model, provider
                         ORDER BY cost_usd DESC
                         """)
                 .bind("tenantId", tenantId)
                 .bind("from", from)
-                .bind("to", to)
-                .map(row -> new ModelBreakdown(
+                .bind("to", to);
+        if (sessionId != null) spec = spec.bind("sessionId", sessionId);
+        return spec.map(row -> new ModelBreakdown(
                         row.get("model", String.class),
                         row.get("provider", String.class),
                         longVal(row.get("requests")),
@@ -103,8 +113,9 @@ public class UsageService {
                 .all();
     }
 
-    private Flux<DailyBreakdown> queryByDay(UUID tenantId, LocalDateTime from, LocalDateTime to) {
-        return db.sql("""
+    private Flux<DailyBreakdown> queryByDay(UUID tenantId, LocalDateTime from, LocalDateTime to, UUID sessionId) {
+        String sessionFilter = sessionId != null ? " AND session_id = :sessionId" : "";
+        var spec = db.sql("""
                         SELECT DATE(created_at)              AS day,
                                COUNT(*)                      AS requests,
                                COALESCE(SUM(input_tokens), 0)  AS input_tokens,
@@ -114,13 +125,15 @@ public class UsageService {
                         WHERE tenant_id = :tenantId
                           AND created_at >= :from
                           AND created_at < :to
+                        """ + sessionFilter + """
                         GROUP BY day
                         ORDER BY day ASC
                         """)
                 .bind("tenantId", tenantId)
                 .bind("from", from)
-                .bind("to", to)
-                .map(row -> new DailyBreakdown(
+                .bind("to", to);
+        if (sessionId != null) spec = spec.bind("sessionId", sessionId);
+        return spec.map(row -> new DailyBreakdown(
                         row.get("day").toString(),
                         longVal(row.get("requests")),
                         longVal(row.get("input_tokens")),
