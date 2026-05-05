@@ -52,7 +52,7 @@ public class UsageService {
     }
 
     private Flux<ProviderBreakdown> queryByProvider(UUID tenantId, LocalDateTime from, LocalDateTime to, UUID sessionId) {
-        String sessionFilter = sessionId != null ? "\n  AND session_id = :sessionId" : "";
+        String sessionFilter = sessionId != null ? "\n  AND session_id = :sessionId\n" : "";
         var spec = db.sql("""
                         SELECT provider,
                                COUNT(*)                      AS requests,
@@ -82,7 +82,7 @@ public class UsageService {
     }
 
     private Flux<ModelBreakdown> queryByModel(UUID tenantId, LocalDateTime from, LocalDateTime to, UUID sessionId) {
-        String sessionFilter = sessionId != null ? "\n  AND session_id = :sessionId" : "";
+        String sessionFilter = sessionId != null ? "\n  AND session_id = :sessionId\n" : "";
         var spec = db.sql("""
                         SELECT model,
                                provider,
@@ -114,7 +114,7 @@ public class UsageService {
     }
 
     private Flux<DailyBreakdown> queryByDay(UUID tenantId, LocalDateTime from, LocalDateTime to, UUID sessionId) {
-        String sessionFilter = sessionId != null ? "\n  AND session_id = :sessionId" : "";
+        String sessionFilter = sessionId != null ? "\n  AND session_id = :sessionId\n" : "";
         var spec = db.sql("""
                         SELECT DATE(created_at)              AS day,
                                COUNT(*)                      AS requests,
