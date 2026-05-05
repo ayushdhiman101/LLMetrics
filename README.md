@@ -7,6 +7,7 @@ Reactive Java gateway for LLM API calls with cost observability, prompt versioni
 | Feature | Description |
 |---|---|
 | Cost observability | Per-request token counts and USD cost persisted to PostgreSQL; dashboard with daily/provider/model breakdowns |
+| Session tracking | Group requests under named sessions; usage events auto-tagged with the active session, dashboard filters by session |
 | Prompt versioning | Versioned templates with `{{variable}}` interpolation and active-version rollback |
 | Multi-provider fallback | Automatic failover across OpenAI, Gemini, Anthropic via Resilience4j circuit breakers |
 | User management | Registration, login/logout via JWT; per-user provider API keys encrypted at rest (AES-256-GCM) |
@@ -224,7 +225,12 @@ Token caching (`ensure_logged_in`) reads/writes a `.gateway_token` file. It deco
 | `GET` | `/v1/prompts/{name}/versions` | either | List all versions for a prompt |
 | `POST` | `/v1/prompts/{name}/versions` | either | `{version, template, description?, isActive?}` |
 | `PUT` | `/v1/prompts/{name}/active-version` | either | `{version}` — set active version |
-| `GET` | `/v1/usage/summary` | either | `?from=YYYY-MM-DD&to=YYYY-MM-DD` |
+| `POST` | `/v1/sessions` | either | `{name?}` — start a new session (auto-stops the previous active one) |
+| `POST` | `/v1/sessions/{id}/stop` | either | End a session — sets `ended_at` to now |
+| `PUT` | `/v1/sessions/{id}/name` | either | `{name}` — rename a session |
+| `GET` | `/v1/sessions` | either | List all sessions for the tenant, newest first |
+| `GET` | `/v1/sessions/active` | either | Currently-active session, or `204 No Content` |
+| `GET` | `/v1/usage/summary` | either | `?from=YYYY-MM-DD&to=YYYY-MM-DD&sessionId=<uuid>` — `sessionId` overrides `from`/`to` with the session's bounds |
 
 ---
 
@@ -303,9 +309,14 @@ prompts  ◄──────────────────────�
    │ 1:N                                     │
 prompt_versions                              │
                                              │
+sessions ◄───────────────────────────────────┤
+                                             │
 usage_events ◄───────────────────────────────┘
-   └── FK → prompts (nullable — set only for prompt-mode requests)
+   ├── FK → prompts  (nullable — set only for prompt-mode requests)
+   └── FK → sessions (nullable — auto-tagged with the active session at request time)
 ```
+
+A session is "active" while `ended_at IS NULL`. Each tenant has at most one active session at a time — starting a new one auto-stops the previous. When a completion is recorded, `MetricsPipeline` looks up the active session for the tenant and stamps its `id` onto the `usage_events` row; if none is open, `session_id` stays null.
 
 Each registered user gets their own `tenant` row (1:1). All data — prompts, usage, API keys — is scoped to that tenant.
 

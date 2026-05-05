@@ -313,18 +313,57 @@ curl -X PUT http://localhost:8080/v1/prompts/summarize/active-version \
 
 ---
 
+## Sessions
+
+Sessions group a stretch of completions under a named bucket so cost can be attributed to specific work (a feature build, a benchmark run, a customer demo, etc.). Each tenant has at most one active session at a time. Every `usage_events` row is auto-tagged with the active session's id — no header or request-body change needed on `/v1/completions`.
+
+```bash
+# Start a new session (auto-stops any previously-active one)
+curl -X POST http://localhost:8080/v1/sessions \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"feature-x benchmark"}'
+# → {"id":"...","name":"feature-x benchmark","startedAt":"...","endedAt":null,"active":true}
+
+# Look up the currently-active session (returns 204 if none is open)
+curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8080/v1/sessions/active | jq
+
+# List all sessions, newest first
+curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8080/v1/sessions | jq
+
+# Rename
+curl -X PUT http://localhost:8080/v1/sessions/<id>/name \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"feature-x benchmark — round 2"}'
+
+# Stop
+curl -X POST http://localhost:8080/v1/sessions/<id>/stop \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Body is optional on `POST /v1/sessions` — omitting it (or passing a blank `name`) defaults to `"Session"`.
+
+---
+
 ## Cost / usage summary
 
 ```bash
+# Time-windowed view (the default — last 30 days if no params)
 curl -s -H "Authorization: Bearer $TOKEN" \
   "http://localhost:8080/v1/usage/summary?from=2025-01-01&to=2025-12-31" | jq
+
+# Filter to a specific session — `from`/`to` are ignored; the date range
+# locks to the session's started_at..(ended_at | now)
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8080/v1/usage/summary?sessionId=<uuid>" | jq
 ```
 
 Or query the database directly:
 
 ```bash
 docker exec -i llmgateway-postgres psql -U postgres -d llmgateway -c \
-  "SELECT provider, model, input_tokens, output_tokens, cost_usd, latency_ms, created_at
+  "SELECT provider, model, input_tokens, output_tokens, cost_usd, latency_ms, session_id, created_at
    FROM usage_events ORDER BY created_at DESC LIMIT 10;"
 ```
 

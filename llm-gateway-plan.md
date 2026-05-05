@@ -58,9 +58,12 @@ Vite Dev Server  ──proxy /v1/* and /auth/*──►  Spring Boot Gateway (po
    └── event: done        (final model used)
    └── event: error       (unrecoverable failure)
 
-6. doOnComplete() → async virtual thread
+6. doOnComplete() → async virtual thread (MetricsPipeline)
    └── Read token counts from provider's usage field in final SSE chunk
    └── Calculate cost: (input_tokens/1000 × input_price) + (output_tokens/1000 × output_price)
+   └── Look up tenant's active session (sessions WHERE ended_at IS NULL)
+   │     └── If found: stamp session_id onto the row
+   │     └── If none:  session_id stays null (request is unattributed)
    └── Write UsageEvent to PostgreSQL (non-blocking to the response)
 ```
 
@@ -91,7 +94,8 @@ com.llmgateway/
 │   ├── ApiKey.java                  api_keys table (legacy X-API-Key path)
 │   ├── Prompt.java                  prompts table
 │   ├── PromptVersion.java           prompt_versions table
-│   └── UsageEvent.java              usage_events table
+│   ├── Session.java                 sessions table
+│   └── UsageEvent.java              usage_events table (incl. session_id)
 │
 ├── gateway/
 │   ├── CompletionController.java    POST /v1/completions — SSE endpoint
@@ -112,7 +116,12 @@ com.llmgateway/
 │   └── PromptInterpolator.java      {{variable}} substitution
 │
 ├── metrics/
-│   └── UsageService.java            @Async over virtual threads — writes UsageEvent rows
+│   ├── MetricsPipeline.java         @Async over virtual threads — writes UsageEvent rows
+│   │                                 └── Auto-tags each row with the tenant's active session
+│   ├── UsageController.java         GET /v1/usage/summary (optional sessionId filter)
+│   ├── UsageService.java            Aggregates usage_events into provider/model/daily breakdowns
+│   ├── SessionController.java       POST/GET/PUT /v1/sessions* — session CRUD
+│   └── SessionService.java          Start/stop/rename/list; enforces one active session per tenant
 │
 ├── repository/                      R2DBC repository interfaces (Spring Data)
 └── dto/                             Request/response DTOs
@@ -130,58 +139,59 @@ com.llmgateway/
 ├──────────────────────────────────┤
 │ PK  id               UUID        │
 │     name             TEXT        │
-│     monthly_token_budget  BIGINT │   ← added V2
-│     webhook_url      TEXT        │   ← added V2
+│     monthly_token_budget  BIGINT │   ← added V2 (dropped V5)
+│     webhook_url      TEXT        │   ← added V2 (dropped V5)
 │     created_at       TIMESTAMPTZ│
-└──┬───────────┬──────────┬────────┘
-   │           │          │           │
-  1:1         1:N        1:N         1:N
-   │           │          │           │
-   ▼           ▼          ▼           │
-┌──────────────────┐  ┌────────────┐  ┌──────────────────┐        │
-│      users       │  │  api_keys  │  │     prompts      │        │
-├──────────────────┤  ├────────────┤  ├──────────────────┤        │
-│ PK  id      UUID │  │ PK id      │  │ PK  id      UUID │        │
-│ FK  tenant_id ◄──┼──┤ FK tenant_ │  │ FK  tenant_id    │        │
-│     email   TEXT │  │    id      │  │     name    TEXT │        │
-│     password_    │  │    key_hash│  │ UQ (tenant_id,   │        │
-│     hash    TEXT │  │    created │  │      name)       │        │
-│     created_at   │  └────────────┘  │     created_at   │        │
-└────────┬─────────┘                  └────────┬─────────┘        │
-         │ 1:N                                 │ 1:N              │
-         ▼                                     ▼                  │
-┌──────────────────────┐           ┌──────────────────────┐       │
-│   user_provider_keys │           │    prompt_versions   │       │
-├──────────────────────┤           ├──────────────────────┤       │
-│ PK  id          UUID │           │ PK  id          UUID │       │
-│ FK  user_id (CASCADE)│           │ FK  prompt_id        │       │
-│     provider    TEXT │           │     version     TEXT │       │
-│     encrypted_key    │           │     template    TEXT │       │
-│         TEXT         │           │     description TEXT │       │
-│     created_at       │           │     changelog   TEXT │       │
-│     updated_at       │           │     is_active BOOLEAN│       │
-│ UQ (user_id,         │           │     created_at       │       │
-│      provider)       │           │ UQ (prompt_id,       │       │
-└──────────────────────┘           │      version)        │       │
-                                   └──────────────────────┘       │
-                                                                   │
-                                   ┌───────────────────────────────┘
-                                   ▼
-                        ┌──────────────────────────┐
-                        │       usage_events       │
-                        ├──────────────────────────┤
-                        │ PK  id             UUID  │
-                        │ FK  tenant_id            │
-                        │ FK  prompt_id (nullable) │
-                        │     prompt_version  TEXT │  ← snapshot, not FK
-                        │     provider        TEXT │
-                        │     model           TEXT │
-                        │     input_tokens     INT │
-                        │     output_tokens    INT │
-                        │     cost_usd   NUMERIC   │
-                        │     latency_ms       INT │
-                        │     created_at           │
-                        └──────────────────────────┘
+└──┬───────────┬──────────┬────────┬──────────┐
+   │           │          │        │          │
+  1:1         1:N        1:N      1:N        1:N
+   │           │          │        │          │
+   ▼           ▼          ▼        ▼          │
+┌──────────────────┐  ┌────────────┐  ┌──────────────────┐  ┌────────────────────┐
+│      users       │  │  api_keys  │  │     prompts      │  │      sessions      │
+├──────────────────┤  ├────────────┤  ├──────────────────┤  ├────────────────────┤
+│ PK  id      UUID │  │ PK id      │  │ PK  id      UUID │  │ PK  id        UUID │
+│ FK  tenant_id ◄──┼──┤ FK tenant_ │  │ FK  tenant_id    │  │ FK  tenant_id      │
+│     email   TEXT │  │    id      │  │     name    TEXT │  │     name      TEXT │
+│     password_    │  │    key_hash│  │ UQ (tenant_id,   │  │     started_at     │
+│     hash    TEXT │  │    created │  │      name)       │  │     ended_at NULL │
+│     created_at   │  └────────────┘  │     created_at   │  │     ← active flag  │
+└────────┬─────────┘                  └────────┬─────────┘  └─────────┬──────────┘
+         │ 1:N                                 │ 1:N                  │ 1:N
+         ▼                                     ▼                      │
+┌──────────────────────┐           ┌──────────────────────┐           │
+│   user_provider_keys │           │    prompt_versions   │           │
+├──────────────────────┤           ├──────────────────────┤           │
+│ PK  id          UUID │           │ PK  id          UUID │           │
+│ FK  user_id (CASCADE)│           │ FK  prompt_id        │           │
+│     provider    TEXT │           │     version     TEXT │           │
+│     encrypted_key    │           │     template    TEXT │           │
+│         TEXT         │           │     description TEXT │           │
+│     created_at       │           │     changelog   TEXT │           │
+│     updated_at       │           │     is_active BOOLEAN│           │
+│ UQ (user_id,         │           │     created_at       │           │
+│      provider)       │           │ UQ (prompt_id,       │           │
+└──────────────────────┘           │      version)        │           │
+                                   └──────────────────────┘           │
+                                                                       │
+                        ┌──────────────────────────────────────────────┘
+                        ▼
+             ┌────────────────────────────────┐
+             │          usage_events          │
+             ├────────────────────────────────┤
+             │ PK  id                  UUID   │
+             │ FK  tenant_id                  │
+             │ FK  prompt_id (nullable)       │
+             │ FK  session_id (nullable)      │  ← added V6
+             │     prompt_version       TEXT  │  ← snapshot, not FK
+             │     provider             TEXT  │
+             │     model                TEXT  │
+             │     input_tokens          INT  │
+             │     output_tokens         INT  │
+             │     cost_usd          NUMERIC  │
+             │     latency_ms            INT  │
+             │     created_at                 │
+             └────────────────────────────────┘
 ```
 
 ### Key design decisions
@@ -191,6 +201,7 @@ com.llmgateway/
 - **`prompt_version` in `usage_events` is TEXT, not a FK.** It's a point-in-time snapshot so cost history stays accurate even if a version is deleted later.
 - **`user_provider_keys` cascades on user delete.** Dropping a user automatically removes all their encrypted keys.
 - **All PKs are UUID v4.** Random, non-enumerable, globally unique. No sequential integer PKs — prevents ID guessing on user-facing endpoints.
+- **Sessions: at most one active per tenant.** "Active" is encoded as `ended_at IS NULL`. The partial index `idx_sessions_tenant_active` makes the active-session lookup on the request path effectively free. Starting a new session via `POST /v1/sessions` auto-stops the previous active one in the same transaction. `usage_events.session_id` uses `ON DELETE SET NULL` so deleting a session preserves cost history (rows just become unattributed).
 
 ### Flyway migration history
 
@@ -201,6 +212,7 @@ com.llmgateway/
 | V3 | Seed dev tenant, dev API key, and `hello` prompt |
 | V4 | Add `users` and `user_provider_keys` tables |
 | V5 | Drop unused `monthly_token_budget` and `webhook_url` columns; add performance indexes |
+| V6 | Add `sessions` table + `usage_events.session_id` FK (`ON DELETE SET NULL`) |
 
 ---
 
@@ -221,6 +233,9 @@ frontend/src/
 │   ├── Login.tsx               POST /auth/login → store JWT → navigate to /
 │   ├── Register.tsx            POST /auth/register → success banner → navigate /login
 │   ├── CostDashboard.tsx       GET /v1/usage/summary → StatCards + DailyChart + ProviderChart + ModelTable
+│   │                            └── Session selector: "Overall" or a specific session
+│   │                                When a session is picked, request adds ?sessionId= and
+│   │                                date range locks to the session's start..end (or now)
 │   ├── Prompts.tsx             Prompt CRUD + version management
 │   ├── Playground.tsx          SSE streaming completions with model selector and fallback log
 │   └── ApiKeySettings.tsx      GET/PUT/DELETE /v1/user/provider-keys per provider
